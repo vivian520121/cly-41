@@ -17,6 +17,10 @@ import {
 import { allTemplates, getTemplateById } from '@/templates';
 import { generateTimelineSVG } from '@/utils/timelineRenderer';
 
+let playbackIntervalId: number | null = null;
+let playbackStartTime: number = 0;
+let playbackStartPosition: number = 0;
+
 interface AppState {
   selectedTemplateId: string;
   currentParams: AnimationParams;
@@ -57,6 +61,7 @@ interface AppState {
   addLayer: (layer: Omit<AnimationLayer, 'id'>) => void;
   removeLayer: (layerId: string) => void;
   updateLayerName: (layerId: string, name: string) => void;
+  updateLayerPhaseOffset: (layerId: string, offset: number) => void;
   addKeyframe: (layerId: string, time: number, transform?: Partial<TransformParams>) => void;
   removeKeyframe: (layerId: string, keyframeId: string) => void;
   updateKeyframeTime: (layerId: string, keyframeId: string, time: number) => void;
@@ -271,6 +276,68 @@ export const useAppStore = create<AppState>((set, get) => ({
 
   setIsPlaying: (isPlaying: boolean) => {
     set((state) => ({ timeline: { ...state.timeline, isPlaying } }));
+
+    if (playbackIntervalId !== null) {
+      clearInterval(playbackIntervalId);
+      playbackIntervalId = null;
+    }
+
+    if (isPlaying) {
+      const state = get();
+      if (!state.timeline.enabled) return;
+
+      playbackStartTime = performance.now();
+      playbackStartPosition = state.timeline.currentTime;
+
+      const tick = () => {
+        const state = get();
+        if (!state.timeline.isPlaying || !state.timeline.enabled) {
+          if (playbackIntervalId !== null) {
+            clearInterval(playbackIntervalId);
+            playbackIntervalId = null;
+          }
+          return;
+        }
+
+        const now = performance.now();
+        const elapsed = (now - playbackStartTime) / 1000;
+        let newTime = playbackStartPosition + elapsed;
+
+        const duration = state.timeline.duration;
+        const loopCount = state.currentParams.loopCount;
+
+        if (duration > 0) {
+          if (loopCount === 0) {
+            newTime = newTime % duration;
+            if (newTime < 0) newTime += duration;
+          } else {
+            const totalDuration = duration * loopCount;
+            if (newTime >= totalDuration) {
+              newTime = duration;
+              set((s) => ({ timeline: { ...s.timeline, isPlaying: false } }));
+              if (playbackIntervalId !== null) {
+                clearInterval(playbackIntervalId);
+                playbackIntervalId = null;
+              }
+              return;
+            } else if (newTime > duration) {
+              newTime = newTime % duration;
+            }
+          }
+        }
+
+        const clampedTime = Math.max(0, Math.min(duration, newTime));
+        set((s) => ({
+          timeline: { ...s.timeline, currentTime: clampedTime },
+        }));
+
+        if (get().timeline.enabled) {
+          get().generateTimelineSVGCode();
+        }
+      };
+
+      playbackIntervalId = window.setInterval(tick, 1000 / 60);
+    }
   },
 
   setTimelineDuration: (duration: number) => {
@@ -347,6 +414,7 @@ export const useAppStore = create<AppState>((set, get) => ({
     const newLayer: AnimationLayer = {
       ...layer,
       id: generateId(),
+      phaseOffset: layer.phaseOffset || 0,
     };
     set((state) => ({
       timeline: {
@@ -380,6 +448,20 @@ export const useAppStore = create<AppState>((set, get) => ({
         ),
       },
     }));
+  },
+
+  updateLayerPhaseOffset: (layerId: string, offset: number) => {
+    set((state) => ({
+      timeline: {
+        ...state.timeline,
+        layers: state.timeline.layers.map((l) =>
+          l.id === layerId ? { ...l, phaseOffset: offset } : l
+        ),
+      },
+    }));
+    if (get().timeline.enabled) {
+      get().generateTimelineSVGCode();
+    }
   },
 
   addKeyframe: (layerId: string, time: number, transform: Partial<TransformParams> = {}) => {
@@ -577,37 +659,91 @@ export const useAppStore = create<AppState>((set, get) => ({
 
     const layers: AnimationLayer[] = [];
     const duration = template.defaultParams.duration;
+    const bounceHeight = duration > 0 ? Math.min(15, duration * 10) : 10;
+    const pulseScale = 1.3;
+
+    const isBounceType = templateId.includes('bounce') || templateId.includes('wave');
+    const isPulseType = templateId.includes('pulse');
+    const isRotateType = templateId.includes('rotate');
+    const isGridType = templateId.includes('grid');
+    const isCircularType = templateId.includes('circular');
+
+    const { size } = template.defaultParams;
+    const bounceY = size / 6;
 
     for (let i = 0; i < dotCount; i++) {
+      const phaseOffset = (i / dotCount) * duration * 0.5;
+      const keyframes: Keyframe[] = [];
+
+      if (isBounceType) {
+        const keyframeTimes = [0, duration * 0.5, duration];
+        const yValues = [0, -bounceY, 0];
+
+        keyframeTimes.forEach((time, idx) => {
+          keyframes.push(createKeyframe(time, {
+            y: yValues[idx],
+            scaleX: 1,
+            scaleY: 1,
+            rotation: 0,
+            opacity: 1,
+          }));
+        });
+      } else if (isPulseType) {
+        const keyframeTimes = [0, duration * 0.3, duration * 0.6, duration];
+        const scaleValues = [1, pulseScale, 0.9, 1];
+        const opacityValues = [1, 1, 0.7, 1];
+
+        keyframeTimes.forEach((time, idx) => {
+          keyframes.push(createKeyframe(time, {
+            y: 0,
+            scaleX: scaleValues[idx],
+            scaleY: scaleValues[idx],
+            rotation: 0,
+            opacity: opacityValues[idx],
+          }));
+        });
+      } else if (isRotateType) {
+        keyframes.push(createKeyframe(0, {
+          rotation: 0,
+          scaleX: 1,
+          scaleY: 1,
+          opacity: 0.3 + (i / dotCount) * 0.7,
+        }));
+        keyframes.push(createKeyframe(duration, {
+          rotation: 360,
+          scaleX: 1,
+          scaleY: 1,
+          opacity: 0.3 + (i / dotCount) * 0.7,
+        }));
+      } else if (isGridType) {
+        const keyframeTimes = [0, duration * 0.5, duration];
+        const opacityValues = [0.3, 1, 0.3];
+        const scaleValues = [0.8, 1.1, 0.8];
+
+        keyframeTimes.forEach((time, idx) => {
+          keyframes.push(createKeyframe(time, {
+            scaleX: scaleValues[idx],
+            scaleY: scaleValues[idx],
+            opacity: opacityValues[idx],
+          }));
+        });
+      } else if (isCircularType) {
+        keyframes.push(createKeyframe(0, { rotation: 0, opacity: 1 }));
+        keyframes.push(createKeyframe(duration, { rotation: 360, opacity: 1 }));
+      } else {
+        keyframes.push(createKeyframe(0, { y: -bounceHeight * 0.5 }));
+        keyframes.push(createKeyframe(duration * 0.5, { y: bounceHeight * 0.5 }));
+        keyframes.push(createKeyframe(duration, { y: -bounceHeight * 0.5 }));
+      }
+
       const layer: AnimationLayer = {
         id: generateId(),
         name: `图层 ${i + 1}`,
         elementId: `element-${i}`,
         visible: true,
         locked: false,
-        keyframes: [
-          createKeyframe(0, {
-            y: templateId.includes('bounce') || templateId.includes('wave') ? (i % 2 === 0 ? -10 : 10) : 0,
-            scaleX: templateId.includes('pulse') ? 0.8 : 1,
-            scaleY: templateId.includes('pulse') ? 0.8 : 1,
-            rotation: templateId.includes('rotate') ? (i * 45) : 0,
-            opacity: 1,
-          }),
-          createKeyframe(duration / 2, {
-            y: templateId.includes('bounce') || templateId.includes('wave') ? (i % 2 === 0 ? 10 : -10) : 0,
-            scaleX: templateId.includes('pulse') ? 1.2 : 1,
-            scaleY: templateId.includes('pulse') ? 1.2 : 1,
-            rotation: templateId.includes('rotate') ? (i * 45 + 180) : 0,
-            opacity: 0.7,
-          }),
-          createKeyframe(duration, {
-            y: 0,
-            scaleX: 1,
-            scaleY: 1,
-            rotation: templateId.includes('rotate') ? (i * 45 + 360) : 0,
-            opacity: 1,
-          }),
-        ],
+        keyframes,
+        phaseOffset,
       };
       layers.push(layer);
     }

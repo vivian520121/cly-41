@@ -47,6 +47,7 @@ export interface AnimationLayer {
   visible: boolean;
   locked: boolean;
   keyframes: Keyframe[];
+  phaseOffset: number;
 }
 
 export interface TimelineState {

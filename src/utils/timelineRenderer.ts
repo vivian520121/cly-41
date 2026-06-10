@@ -1,5 +1,4 @@
 import { TimelineState, AnimationParams, Keyframe, BezierCurve, TransformParams } from '@/types';
-import { getLoopValue } from './easingFunctions';
 
 const cubicBezier = (t: number, p0: number, p1: number, p2: number, p3: number): number => {
   const mt = 1 - t;
@@ -12,7 +11,7 @@ const bezierToFunction = (curve: BezierCurve) => {
     let high = 1;
     let mid = 0;
 
-    for (let i = 0; i < 10; i++) {
+    for (let i = 0; i < 12; i++) {
       mid = (low + high) / 2;
       const x = cubicBezier(mid, 0, curve.x1, curve.x2, 1);
       if (x < t) {
@@ -92,26 +91,12 @@ export const interpolateTransform = (
   };
 };
 
-const formatKeyframesForSMIL = (keyframes: Keyframe[], property: keyof TransformParams): string => {
-  const sorted = [...keyframes].sort((a, b) => a.time - b.time);
-  return sorted.map((k) => k.transform[property]).join(';');
-};
-
-const formatKeyframeTimes = (keyframes: Keyframe[], duration: number): string => {
-  const sorted = [...keyframes].sort((a, b) => a.time - b.time);
-  return sorted.map((k) => (k.time / duration).toFixed(3)).join(';');
-};
-
-const formatBezierForSMIL = (curve: BezierCurve): string => {
-  return `${curve.x1},${curve.y1},${curve.x2},${curve.y2}`;
-};
-
 export const generateTimelineSVG = (
   timeline: TimelineState,
   params: AnimationParams
 ): string => {
-  const { size, color, colorSecondary, duration, loopCount, strokeWidth } = params;
-  const { layers, currentTime } = timeline;
+  const { size, color, colorSecondary } = params;
+  const { layers, currentTime, duration } = timeline;
 
   const visibleLayers = layers.filter((l) => l.visible);
   const layerCount = visibleLayers.length;
@@ -122,68 +107,43 @@ export const generateTimelineSVG = (
 </svg>`;
   }
 
-  const dotSize = Math.max(4, size / 8);
+  const dotSize = Math.max(4, size / 6);
   const spacing = layerCount > 1 ? size / (layerCount + 1) : size / 2;
-  const colors = [color, colorSecondary, '#10b981', '#f59e0b', '#ec4899', '#8b5cf6', '#06b6d4', '#6366f1', '#14b8a6'];
+  const defaultColors = [color, color, color, color, color, color, color, color, color];
 
   const elements: string[] = [];
 
   visibleLayers.forEach((layer, index) => {
     const sortedKeyframes = [...layer.keyframes].sort((a, b) => a.time - b.time);
     const hasKeyframes = sortedKeyframes.length > 0;
-    const layerColor = colors[index % colors.length];
+    const layerColor = defaultColors[index % defaultColors.length];
 
     if (!hasKeyframes) {
+      const baseX = spacing * (index + 1);
+      const baseY = size / 2;
+      elements.push(`  <circle cx="${baseX}" cy="${baseY}" r="${dotSize}" fill="${layerColor}" opacity="0.3" />`);
       return;
     }
 
-    const currentTransform = interpolateTransform(layer.keyframes, currentTime);
+    const phaseOffset = layer.phaseOffset || 0;
+    const layerTime = duration > 0 ? ((currentTime + phaseOffset) % duration + duration) % duration : currentTime;
+    const transform = interpolateTransform(layer.keyframes, layerTime);
     const baseX = spacing * (index + 1);
     const baseY = size / 2;
 
-    const animateElements: string[] = [];
+    const cx = baseX + transform.x;
+    const cy = baseY + transform.y;
+    const r = dotSize * ((transform.scaleX + transform.scaleY) / 2);
+    const opacity = Math.max(0, Math.min(1, transform.opacity));
+    const rotation = transform.rotation;
 
-    if (sortedKeyframes.length > 1) {
-      const totalDuration = sortedKeyframes[sortedKeyframes.length - 1].time - sortedKeyframes[0].time;
-      const adjustedDuration = totalDuration > 0 ? totalDuration : duration;
-
-      const properties: Array<keyof TransformParams> = ['x', 'y', 'scaleX', 'scaleY', 'rotation', 'opacity'];
-
-      properties.forEach((prop) => {
-        const values = formatKeyframesForSMIL(sortedKeyframes, prop);
-        const keyTimes = formatKeyframeTimes(sortedKeyframes, adjustedDuration);
-        const firstKeyframe = sortedKeyframes[0];
-        const bezier = formatBezierForSMIL(firstKeyframe.easing[prop]);
-
-        if (prop === 'x' || prop === 'y') {
-          const baseValue = prop === 'x' ? baseX : baseY;
-          const animatedValues = sortedKeyframes
-            .map((k) => (baseValue + k.transform[prop]).toFixed(2))
-            .join(';');
-
-          animateElements.push(`    <animate attributeName="${prop === 'x' ? 'cx' : 'cy'}" values="${animatedValues}" keyTimes="${keyTimes}" dur="${adjustedDuration}s" repeatCount="${getLoopValue(loopCount)}" />`);
-        } else if (prop === 'scaleX' || prop === 'scaleY') {
-          animateElements.push(`    <animateTransform attributeName="transform" type="scale" values="${formatKeyframesForSMIL(sortedKeyframes, prop)}" keyTimes="${keyTimes}" dur="${adjustedDuration}s" repeatCount="${getLoopValue(loopCount)}" additive="sum" />`);
-        } else if (prop === 'rotation') {
-          const centerX = baseX + currentTransform.x;
-          const centerY = baseY + currentTransform.y;
-          const rotationValues = sortedKeyframes
-            .map((k) => `${k.transform.rotation} ${centerX} ${centerY}`)
-            .join(';');
-          animateElements.push(`    <animateTransform attributeName="transform" type="rotate" values="${rotationValues}" keyTimes="${keyTimes}" dur="${adjustedDuration}s" repeatCount="${getLoopValue(loopCount)}" additive="sum" />`);
-        } else if (prop === 'opacity') {
-          animateElements.push(`    <animate attributeName="opacity" values="${values}" keyTimes="${keyTimes}" dur="${adjustedDuration}s" repeatCount="${getLoopValue(loopCount)}" />`);
-        }
-      });
+    if (Math.abs(rotation) > 0.01) {
+      elements.push(`  <g transform="rotate(${rotation} ${cx} ${cy})">
+    <circle cx="${cx}" cy="${cy}" r="${r}" fill="${layerColor}" opacity="${opacity}" />
+  </g>`);
+    } else {
+      elements.push(`  <circle cx="${cx}" cy="${cy}" r="${r}" fill="${layerColor}" opacity="${opacity}" />`);
     }
-
-    const x = baseX + currentTransform.x;
-    const y = baseY + currentTransform.y;
-    const opacity = currentTransform.opacity;
-
-    elements.push(`  <circle cx="${x}" cy="${y}" r="${dotSize}" fill="${layerColor}" opacity="${opacity}">
-${animateElements.join('\n')}
-  </circle>`);
   });
 
   return `<svg width="${size}" height="${size}" viewBox="0 0 ${size} ${size}" xmlns="http://www.w3.org/2000/svg">

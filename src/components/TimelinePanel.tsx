@@ -38,6 +38,7 @@ const TimelinePanel: React.FC = () => {
     updateKeyframeTime,
     addLayer,
     removeLayer,
+    updateLayerPhaseOffset,
   } = useAppStore();
 
   const timelineRef = useRef<HTMLDivElement>(null);
@@ -49,47 +50,8 @@ const TimelinePanel: React.FC = () => {
   const [showBezierEditor, setShowBezierEditor] = useState(false);
   const [selectedEasingProperty, setSelectedEasingProperty] = useState<keyof Keyframe['easing']>('y');
 
-  const animationFrameRef = useRef<number>();
-  const lastTimeRef = useRef<number>(0);
-
   const pixelsPerSecond = 100 * timeline.zoom;
   const timelineWidth = timeline.duration * pixelsPerSecond;
-
-  useEffect(() => {
-    if (timeline.isPlaying && timeline.enabled) {
-      const animate = (timestamp: number) => {
-        if (!lastTimeRef.current) {
-          lastTimeRef.current = timestamp;
-        }
-
-        const delta = (timestamp - lastTimeRef.current) / 1000;
-        lastTimeRef.current = timestamp;
-
-        const newTime = timeline.currentTime + delta;
-        if (newTime >= timeline.duration) {
-          if (currentParams.loopCount === 0) {
-            setCurrentTime(0);
-          } else {
-            setCurrentTime(timeline.duration);
-            setIsPlaying(false);
-          }
-        } else {
-          setCurrentTime(newTime);
-        }
-
-        animationFrameRef.current = requestAnimationFrame(animate);
-      };
-
-      animationFrameRef.current = requestAnimationFrame(animate);
-    }
-
-    return () => {
-      if (animationFrameRef.current) {
-        cancelAnimationFrame(animationFrameRef.current);
-      }
-      lastTimeRef.current = 0;
-    };
-  }, [timeline.isPlaying, timeline.enabled, timeline.currentTime, timeline.duration, currentParams.loopCount, setCurrentTime, setIsPlaying]);
 
   const handlePlayPause = () => {
     if (timeline.currentTime >= timeline.duration) {
@@ -117,6 +79,7 @@ const TimelinePanel: React.FC = () => {
           visible: true,
           locked: false,
           keyframes: [],
+          phaseOffset: 0,
         });
       } else {
         selectLayer(timeline.layers[0].id);
@@ -208,6 +171,7 @@ const TimelinePanel: React.FC = () => {
       visible: true,
       locked: false,
       keyframes: [],
+      phaseOffset: 0,
     });
   };
 
