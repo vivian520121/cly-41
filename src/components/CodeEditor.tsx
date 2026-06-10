@@ -1,49 +1,73 @@
 import React, { useState, useCallback, useEffect, useRef } from 'react';
 import { Code, RefreshCw, Copy, Check, AlertCircle } from 'lucide-react';
 import { useAppStore } from '@/store/useAppStore';
-import { useDebounce } from '@/hooks/useDebounce';
 
 const CodeEditor: React.FC = () => {
-  const { svgCode, setSvgCode, addToast, isCustomCode, generateSVG, selectedTemplateId } = useAppStore();
+  const { svgCode, setSvgCode, addToast, isCustomCode, generateSVG, selectedTemplateId, setIsCustomCode } = useAppStore();
   const [localCode, setLocalCode] = useState(svgCode);
   const [isValid, setIsValid] = useState(true);
   const [copied, setCopied] = useState(false);
+  
+  const lastSystemSvgCode = useRef(svgCode);
+  const debounceTimer = useRef<number | null>(null);
   const isUserEditing = useRef(false);
 
-  const debouncedCode = useDebounce(localCode, 300);
-
   useEffect(() => {
-    isUserEditing.current = false;
-    setLocalCode(svgCode);
-  }, [svgCode, selectedTemplateId]);
-
-  useEffect(() => {
-    if (debouncedCode !== svgCode && debouncedCode === localCode) {
-      try {
-        const parser = new DOMParser();
-        const doc = parser.parseFromString(debouncedCode, 'image/svg+xml');
-        const errorNode = doc.querySelector('parsererror');
-        if (errorNode) {
-          setIsValid(false);
-        } else {
-          setIsValid(true);
-          setSvgCode(debouncedCode);
-        }
-      } catch {
-        setIsValid(false);
+    if (svgCode !== lastSystemSvgCode.current) {
+      lastSystemSvgCode.current = svgCode;
+      isUserEditing.current = false;
+      setLocalCode(svgCode);
+      if (debounceTimer.current) {
+        clearTimeout(debounceTimer.current);
+        debounceTimer.current = null;
       }
     }
-  }, [debouncedCode, svgCode, localCode, setSvgCode]);
+  }, [svgCode, selectedTemplateId]);
+
+  const applyUserCode = useCallback((code: string) => {
+    try {
+      const parser = new DOMParser();
+      const doc = parser.parseFromString(code, 'image/svg+xml');
+      const errorNode = doc.querySelector('parsererror');
+      if (errorNode) {
+        setIsValid(false);
+      } else {
+        setIsValid(true);
+        lastSystemSvgCode.current = code;
+        setSvgCode(code);
+      }
+    } catch {
+      setIsValid(false);
+    }
+  }, [setSvgCode]);
 
   const handleCodeChange = useCallback((e: React.ChangeEvent<HTMLTextAreaElement>) => {
+    const newCode = e.target.value;
     isUserEditing.current = true;
-    setLocalCode(e.target.value);
-  }, []);
+    setLocalCode(newCode);
+
+    if (debounceTimer.current) {
+      clearTimeout(debounceTimer.current);
+    }
+
+    debounceTimer.current = window.setTimeout(() => {
+      if (isUserEditing.current && newCode !== lastSystemSvgCode.current) {
+        applyUserCode(newCode);
+      }
+      debounceTimer.current = null;
+    }, 300);
+  }, [applyUserCode]);
 
   const handleReset = useCallback(() => {
+    isUserEditing.current = false;
+    if (debounceTimer.current) {
+      clearTimeout(debounceTimer.current);
+      debounceTimer.current = null;
+    }
+    setIsCustomCode(false);
     generateSVG();
     addToast('代码已重置', 'info');
-  }, [generateSVG, addToast]);
+  }, [generateSVG, addToast, setIsCustomCode]);
 
   const handleCopy = useCallback(async () => {
     try {
@@ -87,11 +111,14 @@ const CodeEditor: React.FC = () => {
         .join('\n');
       
       setLocalCode(formatted);
+      if (isUserEditing.current) {
+        applyUserCode(formatted);
+      }
       addToast('代码已格式化', 'success');
     } catch {
       addToast('格式化失败', 'error');
     }
-  }, [localCode, addToast]);
+  }, [localCode, addToast, applyUserCode]);
 
   const lineNumbers = localCode.split('\n').map((_, i) => i + 1);
 

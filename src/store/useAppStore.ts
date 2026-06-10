@@ -159,7 +159,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   },
 
   generateSVG: () => {
-    const { selectedTemplateId, currentParams, isCustomCode, svgCode } = get();
+    const { selectedTemplateId, currentParams, isCustomCode } = get();
     if (isCustomCode) {
       return;
     }
@@ -169,3 +169,7 @@ export const useAppStore = create<AppState>((set, get) => ({
     }
   },
 }));
+
+if (typeof window !== 'undefined') {
+  (window as any).useAppStore = useAppStore;
+}
