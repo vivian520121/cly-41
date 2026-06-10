@@ -1,4 +1,4 @@
-import React, { useState, useCallback, useEffect } from 'react';
+import React, { useState, useCallback, useEffect, useRef } from 'react';
 import { Code, RefreshCw, Copy, Check, AlertCircle } from 'lucide-react';
 import { useAppStore } from '@/store/useAppStore';
 import { useDebounce } from '@/hooks/useDebounce';
@@ -8,15 +8,17 @@ const CodeEditor: React.FC = () => {
   const [localCode, setLocalCode] = useState(svgCode);
   const [isValid, setIsValid] = useState(true);
   const [copied, setCopied] = useState(false);
+  const isUserEditing = useRef(false);
 
   const debouncedCode = useDebounce(localCode, 300);
 
   useEffect(() => {
+    isUserEditing.current = false;
     setLocalCode(svgCode);
   }, [svgCode, selectedTemplateId]);
 
   useEffect(() => {
-    if (debouncedCode !== svgCode) {
+    if (debouncedCode !== svgCode && debouncedCode === localCode) {
       try {
         const parser = new DOMParser();
         const doc = parser.parseFromString(debouncedCode, 'image/svg+xml');
@@ -31,9 +33,10 @@ const CodeEditor: React.FC = () => {
         setIsValid(false);
       }
     }
-  }, [debouncedCode, svgCode, setSvgCode]);
+  }, [debouncedCode, svgCode, localCode, setSvgCode]);
 
   const handleCodeChange = useCallback((e: React.ChangeEvent<HTMLTextAreaElement>) => {
+    isUserEditing.current = true;
     setLocalCode(e.target.value);
   }, []);
 
