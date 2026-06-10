@@ -1,5 +1,5 @@
 import React from 'react';
-import { Sun, Moon, Grid3X3, Heart, HeartOff } from 'lucide-react';
+import { Sun, Moon, Grid3X3, Heart, HeartOff, Clock } from 'lucide-react';
 import { useAppStore } from '@/store/useAppStore';
 import { getTemplateById } from '@/templates';
 
@@ -13,6 +13,8 @@ const PreviewArea: React.FC = () => {
     toggleFavorite,
     favorites,
     isCustomCode,
+    timeline,
+    setTimelineEnabled,
   } = useAppStore();
 
   const template = getTemplateById(selectedTemplateId);
@@ -49,6 +51,17 @@ const PreviewArea: React.FC = () => {
           </p>
         </div>
         <div className="flex items-center gap-2">
+          <button
+            onClick={() => setTimelineEnabled(!timeline.enabled)}
+            className={`p-2 rounded-lg transition-all ${
+              timeline.enabled
+                ? 'bg-violet-500/20 text-violet-400 ring-2 ring-violet-400/30'
+                : 'bg-white/5 text-gray-400 hover:text-violet-400 hover:bg-white/10'
+            }`}
+            title={timeline.enabled ? '关闭关键帧编辑器' : '启用关键帧编辑器'}
+          >
+            <Clock className="w-5 h-5" />
+          </button>
           <button
             onClick={handleFavoriteClick}
             className={`p-2 rounded-lg transition-all ${
@@ -118,11 +131,25 @@ const PreviewArea: React.FC = () => {
 
         <div className="p-4 border-t border-white/5">
           <div className="flex items-center justify-center gap-4 text-xs text-gray-500">
-            <span>时长: {currentParams.duration}s</span>
-            <span>•</span>
-            <span>循环: {currentParams.loopCount === 0 ? '无限' : currentParams.loopCount + '次'}</span>
-            <span>•</span>
-            <span>线宽: {currentParams.strokeWidth}px</span>
+            {timeline.enabled ? (
+              <>
+                <span className="text-violet-400">当前时间: {timeline.currentTime.toFixed(2)}s</span>
+                <span>•</span>
+                <span>总时长: {timeline.duration.toFixed(2)}s</span>
+                <span>•</span>
+                <span>图层: {timeline.layers.length}个</span>
+                <span>•</span>
+                <span>{timeline.isPlaying ? '▶ 播放中' : '⏸ 已暂停'}</span>
+              </>
+            ) : (
+              <>
+                <span>时长: {currentParams.duration}s</span>
+                <span>•</span>
+                <span>循环: {currentParams.loopCount === 0 ? '无限' : currentParams.loopCount + '次'}</span>
+                <span>•</span>
+                <span>线宽: {currentParams.strokeWidth}px</span>
+              </>
+            )}
           </div>
         </div>
       </div>

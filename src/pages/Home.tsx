@@ -7,6 +7,7 @@ import CodeEditor from '@/components/CodeEditor';
 import ExportToolbar from '@/components/ExportToolbar';
 import FavoriteList from '@/components/FavoriteList';
 import Toast from '@/components/Toast';
+import TimelinePanel from '@/components/TimelinePanel';
 import { useAppStore } from '@/store/useAppStore';
 
 const Home: React.FC = () => {
@@ -31,6 +32,7 @@ const Home: React.FC = () => {
               <div className="flex-1">
                 <PreviewArea />
               </div>
+              <TimelinePanel />
               <ExportToolbar />
             </div>
           </div>
