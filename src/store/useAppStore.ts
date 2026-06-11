@@ -1,7 +1,6 @@
 import { create } from 'zustand';
 import {
   AnimationParams,
-  SVGAnimationTemplate,
   FavoriteItem,
   PreviewBackground,
   ViewMode,
@@ -13,9 +12,15 @@ import {
   BezierCurve,
   defaultTransformParams,
   defaultBezierCurve,
+  CustomTemplate,
+  CanvasElement,
+  CanvasAnimation,
+  TemplateCategory,
 } from '@/types';
 import { allTemplates, getTemplateById } from '@/templates';
 import { generateTimelineSVG } from '@/utils/timelineRenderer';
+import { elementsToSVG } from '@/utils/svgParser';
+import { getTemplateFromCurrentURL } from '@/utils/shareUtils';
 
 let playbackIntervalId: number | null = null;
 let playbackStartTime: number = 0;
@@ -33,6 +38,10 @@ interface AppState {
   searchQuery: string;
   isCustomCode: boolean;
   timeline: TimelineState;
+  customTemplates: CustomTemplate[];
+  canvasElements: CanvasElement[];
+  selectedElementId: string | null;
+  editingTemplateId: string | null;
 
   selectTemplate: (templateId: string) => void;
   updateParams: (params: Partial<AnimationParams>) => void;
@@ -71,6 +80,24 @@ interface AppState {
   duplicateKeyframe: (layerId: string, keyframeId: string, newTime: number) => void;
   initializeTimelineFromTemplate: (templateId: string) => void;
   generateTimelineSVGCode: () => void;
+
+  addCustomTemplate: (template: CustomTemplate) => void;
+  updateCustomTemplate: (id: string, updates: Partial<CustomTemplate>) => void;
+  deleteCustomTemplate: (id: string) => void;
+  loadSharedTemplate: () => void;
+  addCanvasElement: (element: CanvasElement) => void;
+  updateCanvasElement: (id: string, updates: Partial<CanvasElement>) => void;
+  deleteCanvasElement: (id: string) => void;
+  setSelectedElementId: (id: string | null) => void;
+  addElementAnimation: (elementId: string, animation: CanvasAnimation) => void;
+  updateElementAnimation: (elementId: string, animId: string, updates: Partial<CanvasAnimation>) => void;
+  deleteElementAnimation: (elementId: string, animId: string) => void;
+  setCanvasElements: (elements: CanvasElement[]) => void;
+  setEditingTemplateId: (id: string | null) => void;
+  enterWorkbench: (templateId?: string) => void;
+  saveWorkbenchAsTemplate: (name: string, category: string, description: string) => void;
+  generateCanvasSVG: () => void;
+  getCustomTemplateById: (id: string) => CustomTemplate | undefined;
 }
 
 const defaultTemplate = allTemplates[0];
@@ -89,6 +116,23 @@ const saveFavoritesToStorage = (favorites: FavoriteItem[]) => {
     localStorage.setItem('svg-loader-favorites', JSON.stringify(favorites));
   } catch {
     console.error('Failed to save favorites');
+  }
+};
+
+const loadCustomTemplatesFromStorage = (): CustomTemplate[] => {
+  try {
+    const stored = localStorage.getItem('svg-loader-custom-templates');
+    return stored ? JSON.parse(stored) : [];
+  } catch {
+    return [];
+  }
+};
+
+const saveCustomTemplatesToStorage = (templates: CustomTemplate[]) => {
+  try {
+    localStorage.setItem('svg-loader-custom-templates', JSON.stringify(templates));
+  } catch {
+    console.error('Failed to save custom templates');
   }
 };
 
@@ -133,6 +177,10 @@ export const useAppStore = create<AppState>((set, get) => ({
   searchQuery: '',
   isCustomCode: false,
   timeline: { ...defaultTimeline },
+  customTemplates: loadCustomTemplatesFromStorage(),
+  canvasElements: [],
+  selectedElementId: null,
+  editingTemplateId: null,
 
   selectTemplate: (templateId: string) => {
     const template = getTemplateById(templateId);
@@ -144,6 +192,16 @@ export const useAppStore = create<AppState>((set, get) => ({
       });
       get().initializeTimelineFromTemplate(templateId);
       get().generateSVG();
+      return;
+    }
+    const customTemplate = get().getCustomTemplateById(templateId);
+    if (customTemplate) {
+      set({
+        selectedTemplateId: templateId,
+        currentParams: { ...customTemplate.defaultParams },
+        svgCode: customTemplate.svgCode,
+        isCustomCode: true,
+      });
     }
   },
 
@@ -192,11 +250,12 @@ export const useAppStore = create<AppState>((set, get) => ({
       get().addToast('已取消收藏', 'info');
     } else {
       const template = getTemplateById(templateId);
+      const customTemplate = get().getCustomTemplateById(templateId);
       const newFavorite: FavoriteItem = {
         id: `${Date.now()}-${Math.random()}`,
         templateId,
         params: { ...params },
-        name: template?.name || '自定义动画',
+        name: template?.name || customTemplate?.name || '自定义动画',
         createdAt: Date.now(),
       };
       const newFavorites = [...favorites, newFavorite];
@@ -766,8 +825,194 @@ export const useAppStore = create<AppState>((set, get) => ({
     const svgCode = generateTimelineSVG(timeline, currentParams);
     set({ svgCode });
   },
+
+  addCustomTemplate: (template: CustomTemplate) => {
+    const newTemplates = [...get().customTemplates, template];
+    set({ customTemplates: newTemplates });
+    saveCustomTemplatesToStorage(newTemplates);
+    get().addToast('模板已保存', 'success');
+  },
+
+  updateCustomTemplate: (id: string, updates: Partial<CustomTemplate>) => {
+    const newTemplates = get().customTemplates.map(t =>
+      t.id === id ? { ...t, ...updates, updatedAt: Date.now() } : t
+    );
+    set({ customTemplates: newTemplates });
+    saveCustomTemplatesToStorage(newTemplates);
+    get().addToast('模板已更新', 'success');
+  },
+
+  deleteCustomTemplate: (id: string) => {
+    const newTemplates = get().customTemplates.filter(t => t.id !== id);
+    set({ customTemplates: newTemplates });
+    saveCustomTemplatesToStorage(newTemplates);
+    get().addToast('模板已删除', 'info');
+  },
+
+  loadSharedTemplate: () => {
+    const sharedTemplate = getTemplateFromCurrentURL();
+    if (sharedTemplate) {
+      const existing = get().getCustomTemplateById(sharedTemplate.id);
+      if (!existing) {
+        get().addCustomTemplate(sharedTemplate);
+      }
+      set({
+        selectedTemplateId: sharedTemplate.id,
+        currentParams: { ...sharedTemplate.defaultParams },
+        svgCode: sharedTemplate.svgCode,
+        isCustomCode: true,
+        viewMode: 'workbench',
+        canvasElements: sharedTemplate.elements,
+        editingTemplateId: sharedTemplate.id,
+        selectedElementId: null,
+      });
+      get().addToast('已加载分享模板，进入编辑模式', 'success');
+      window.history.replaceState({}, '', window.location.pathname);
+    }
+  },
+
+  addCanvasElement: (element: CanvasElement) => {
+    set({ canvasElements: [...get().canvasElements, element], selectedElementId: element.id });
+    get().generateCanvasSVG();
+  },
+
+  updateCanvasElement: (id: string, updates: Partial<CanvasElement>) => {
+    set({
+      canvasElements: get().canvasElements.map(el =>
+        el.id === id ? { ...el, ...updates } : el
+      ),
+    });
+    get().generateCanvasSVG();
+  },
+
+  deleteCanvasElement: (id: string) => {
+    set({
+      canvasElements: get().canvasElements.filter(el => el.id !== id),
+      selectedElementId: get().selectedElementId === id ? null : get().selectedElementId,
+    });
+    get().generateCanvasSVG();
+  },
+
+  setSelectedElementId: (id: string | null) => {
+    set({ selectedElementId: id });
+  },
+
+  addElementAnimation: (elementId: string, animation: CanvasAnimation) => {
+    set({
+      canvasElements: get().canvasElements.map(el =>
+        el.id === elementId
+          ? { ...el, animations: [...el.animations, animation] }
+          : el
+      ),
+    });
+    get().generateCanvasSVG();
+  },
+
+  updateElementAnimation: (elementId: string, animId: string, updates: Partial<CanvasAnimation>) => {
+    set({
+      canvasElements: get().canvasElements.map(el =>
+        el.id === elementId
+          ? {
+              ...el,
+              animations: el.animations.map(a =>
+                a.id === animId ? { ...a, ...updates } : a
+              ),
+            }
+          : el
+      ),
+    });
+    get().generateCanvasSVG();
+  },
+
+  deleteElementAnimation: (elementId: string, animId: string) => {
+    set({
+      canvasElements: get().canvasElements.map(el =>
+        el.id === elementId
+          ? { ...el, animations: el.animations.filter(a => a.id !== animId) }
+          : el
+      ),
+    });
+    get().generateCanvasSVG();
+  },
+
+  setCanvasElements: (elements: CanvasElement[]) => {
+    set({ canvasElements: elements });
+    get().generateCanvasSVG();
+  },
+
+  setEditingTemplateId: (id: string | null) => {
+    set({ editingTemplateId: id });
+  },
+
+  enterWorkbench: (templateId?: string) => {
+    if (templateId) {
+      const customTemplate = get().getCustomTemplateById(templateId);
+      if (customTemplate) {
+        set({
+          viewMode: 'workbench',
+          canvasElements: [...customTemplate.elements],
+          editingTemplateId: templateId,
+          selectedElementId: null,
+          svgCode: customTemplate.svgCode,
+          currentParams: { ...customTemplate.defaultParams },
+          isCustomCode: true,
+        });
+        return;
+      }
+    }
+    set({
+      viewMode: 'workbench',
+      canvasElements: [],
+      editingTemplateId: null,
+      selectedElementId: null,
+    });
+    get().generateCanvasSVG();
+  },
+
+  saveWorkbenchAsTemplate: (name: string, category: string, description: string) => {
+    const { canvasElements, currentParams, editingTemplateId } = get();
+    const svgCode = elementsToSVG(canvasElements, currentParams.size);
+
+    if (editingTemplateId) {
+      get().updateCustomTemplate(editingTemplateId, {
+        name,
+        category: category as TemplateCategory,
+        description,
+        svgCode,
+        elements: canvasElements,
+        defaultParams: { ...currentParams },
+      });
+    } else {
+      const newTemplate: CustomTemplate = {
+        id: generateId(),
+        name,
+        category: category as TemplateCategory,
+        description,
+        thumbnail: '',
+        svgCode,
+        elements: canvasElements,
+        defaultParams: { ...currentParams },
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
+      };
+      get().addCustomTemplate(newTemplate);
+      set({ editingTemplateId: newTemplate.id });
+    }
+
+    set({ svgCode });
+  },
+
+  generateCanvasSVG: () => {
+    const { canvasElements, currentParams } = get();
+    const svgCode = elementsToSVG(canvasElements, currentParams.size);
+    set({ svgCode });
+  },
+
+  getCustomTemplateById: (id: string): CustomTemplate | undefined => {
+    return get().customTemplates.find(t => t.id === id);
+  },
 }));
 
 if (typeof window !== 'undefined') {
-  (window as any).useAppStore = useAppStore;
+  (window as unknown as Record<string, unknown>).useAppStore = useAppStore;
 }

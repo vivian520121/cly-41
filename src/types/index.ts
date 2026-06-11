@@ -1,4 +1,4 @@
-export type TemplateCategory = 'circular' | 'dots' | 'pulse' | 'glitch' | 'pixel' | 'bars' | 'other';
+export type TemplateCategory = 'circular' | 'dots' | 'pulse' | 'glitch' | 'pixel' | 'bars' | 'custom' | 'other';
 
 export interface TransformParams {
   x: number;
@@ -96,10 +96,56 @@ export interface FavoriteItem {
 
 export type PreviewBackground = 'dark' | 'light' | 'checkerboard';
 
-export type ViewMode = 'templates' | 'favorites';
+export type ViewMode = 'templates' | 'favorites' | 'workbench';
 
 export interface ToastMessage {
   id: string;
   message: string;
   type: 'success' | 'error' | 'info';
+}
+
+export type CanvasShapeType = 'circle' | 'rect' | 'line' | 'path';
+
+export interface CanvasElement {
+  id: string;
+  type: CanvasShapeType;
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  fill: string;
+  stroke: string;
+  strokeWidth: number;
+  opacity: number;
+  rotation: number;
+  rx: number;
+  ry: number;
+  pathData: string;
+  animations: CanvasAnimation[];
+}
+
+export interface CanvasAnimation {
+  id: string;
+  attributeName: string;
+  values: string;
+  dur: string;
+  repeatCount: string;
+  begin: string;
+  fill: string;
+  calcMode: string;
+  keyTimes: string;
+  keySplines: string;
+}
+
+export interface CustomTemplate {
+  id: string;
+  name: string;
+  category: TemplateCategory;
+  description: string;
+  thumbnail: string;
+  svgCode: string;
+  elements: CanvasElement[];
+  defaultParams: AnimationParams;
+  createdAt: number;
+  updatedAt: number;
 }

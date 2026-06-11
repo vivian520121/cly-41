@@ -21,6 +21,7 @@ export const categoryNames: Record<string, string> = {
   glitch: '故障风',
   pixel: '像素方块',
   bars: '条形',
+  custom: '我的模板',
   other: '其他',
 };
 

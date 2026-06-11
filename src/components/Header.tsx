@@ -1,9 +1,9 @@
 import React from 'react';
-import { Loader2, Heart, Grid3X3, Github } from 'lucide-react';
+import { Loader2, Heart, Grid3X3, Github, Wrench } from 'lucide-react';
 import { useAppStore } from '@/store/useAppStore';
 
 const Header: React.FC = () => {
-  const { viewMode, setViewMode } = useAppStore();
+  const { viewMode, setViewMode, enterWorkbench } = useAppStore();
 
   return (
     <header className="h-16 px-6 border-b border-white/10 bg-slate-900/80 backdrop-blur-xl sticky top-0 z-40">
@@ -17,7 +17,7 @@ const Header: React.FC = () => {
             <h1 className="text-xl font-bold bg-gradient-to-r from-sky-400 to-violet-400 bg-clip-text text-transparent">
               SVG Loader Studio
             </h1>
-            <p className="text-xs text-gray-500">可视化加载动画生成器</p>
+            <p className="text-xs text-gray-500">可视化加载动画创作平台</p>
           </div>
         </div>
 
@@ -44,6 +44,17 @@ const Header: React.FC = () => {
             >
               <Heart className="w-4 h-4" />
               收藏夹
+            </button>
+            <button
+              onClick={() => enterWorkbench()}
+              className={`flex items-center gap-2 px-4 py-2 rounded-md text-sm font-medium transition-all ${
+                viewMode === 'workbench'
+                  ? 'bg-emerald-500/20 text-emerald-400'
+                  : 'text-gray-400 hover:text-emerald-400 hover:bg-white/5'
+              }`}
+            >
+              <Wrench className="w-4 h-4" />
+              创作台
             </button>
           </div>
 
