@@ -16,11 +16,23 @@ import {
   CanvasElement,
   CanvasAnimation,
   TemplateCategory,
+  AnimationPreset,
+  PresetParams,
 } from '@/types';
 import { allTemplates, getTemplateById } from '@/templates';
 import { generateTimelineSVG } from '@/utils/timelineRenderer';
 import { elementsToSVG } from '@/utils/svgParser';
-import { getTemplateFromCurrentURL } from '@/utils/shareUtils';
+import { getTemplateFromCurrentURL, getTemplateWithPresetFromCurrentURL } from '@/utils/shareUtils';
+import {
+  officialPresets,
+  loadCustomPresets,
+  addCustomPreset as addCustomPresetUtil,
+  updateCustomPreset as updateCustomPresetUtil,
+  deleteCustomPreset as deleteCustomPresetUtil,
+  applyPresetToParams,
+  extractPresetParams,
+  getPresetById,
+} from '@/utils/presets';
 
 let playbackIntervalId: number | null = null;
 let playbackStartTime: number = 0;
@@ -42,6 +54,8 @@ interface AppState {
   canvasElements: CanvasElement[];
   selectedElementId: string | null;
   editingTemplateId: string | null;
+  selectedPresetId: string | null;
+  customPresets: AnimationPreset[];
 
   selectTemplate: (templateId: string) => void;
   updateParams: (params: Partial<AnimationParams>) => void;
@@ -98,6 +112,14 @@ interface AppState {
   saveWorkbenchAsTemplate: (name: string, category: string, description: string) => void;
   generateCanvasSVG: () => void;
   getCustomTemplateById: (id: string) => CustomTemplate | undefined;
+
+  applyPreset: (presetId: string) => void;
+  setSelectedPreset: (presetId: string | null) => void;
+  getAllPresets: () => AnimationPreset[];
+  addPreset: (name: string, description: string, params?: PresetParams) => AnimationPreset;
+  updatePreset: (id: string, updates: Partial<Pick<AnimationPreset, 'name' | 'description' | 'params'>>) => void;
+  deletePreset: (id: string) => void;
+  saveCurrentParamsAsPreset: (name: string, description: string) => AnimationPreset;
 }
 
 const defaultTemplate = allTemplates[0];
@@ -181,6 +203,8 @@ export const useAppStore = create<AppState>((set, get) => ({
   canvasElements: [],
   selectedElementId: null,
   editingTemplateId: null,
+  selectedPresetId: null,
+  customPresets: loadCustomPresets(),
 
   selectTemplate: (templateId: string) => {
     const template = getTemplateById(templateId);
@@ -850,6 +874,33 @@ export const useAppStore = create<AppState>((set, get) => ({
   },
 
   loadSharedTemplate: () => {
+    const sharedWithPreset = getTemplateWithPresetFromCurrentURL();
+    if (sharedWithPreset) {
+      const { template, presetId, appliedParams } = sharedWithPreset;
+      const existing = get().getCustomTemplateById(template.id);
+      if (!existing) {
+        get().addCustomTemplate(template);
+      }
+      const paramsToUse = appliedParams || template.defaultParams;
+      set({
+        selectedTemplateId: template.id,
+        currentParams: { ...paramsToUse },
+        svgCode: template.svgCode,
+        isCustomCode: true,
+        viewMode: 'workbench',
+        canvasElements: template.elements,
+        editingTemplateId: template.id,
+        selectedElementId: null,
+        selectedPresetId: presetId || null,
+      });
+      if (presetId) {
+        get().addToast('已加载分享模板与预设，进入编辑模式', 'success');
+      } else {
+        get().addToast('已加载分享模板，进入编辑模式', 'success');
+      }
+      window.history.replaceState({}, '', window.location.pathname);
+      return;
+    }
     const sharedTemplate = getTemplateFromCurrentURL();
     if (sharedTemplate) {
       const existing = get().getCustomTemplateById(sharedTemplate.id);
@@ -1010,6 +1061,81 @@ export const useAppStore = create<AppState>((set, get) => ({
 
   getCustomTemplateById: (id: string): CustomTemplate | undefined => {
     return get().customTemplates.find(t => t.id === id);
+  },
+
+  applyPreset: (presetId: string) => {
+    const preset = getPresetById(presetId);
+    if (!preset) {
+      get().addToast('预设不存在', 'error');
+      return;
+    }
+    const newParams = applyPresetToParams(preset, get().currentParams);
+    set({
+      currentParams: newParams,
+      selectedPresetId: presetId,
+      isCustomCode: false,
+    });
+    if (newParams.duration) {
+      set((state) => ({
+        timeline: { ...state.timeline, duration: newParams.duration },
+      }));
+    }
+    get().generateSVG();
+    get().addToast(`已应用预设：${preset.name}`, 'success');
+  },
+
+  setSelectedPreset: (presetId: string | null) => {
+    set({ selectedPresetId: presetId });
+  },
+
+  getAllPresets: (): AnimationPreset[] => {
+    return [...officialPresets, ...get().customPresets];
+  },
+
+  addPreset: (name: string, description: string, params?: PresetParams): AnimationPreset => {
+    const presetParams = params || extractPresetParams(get().currentParams);
+    const newPreset = addCustomPresetUtil(name, description, presetParams);
+    set({
+      customPresets: [...get().customPresets, newPreset],
+    });
+    get().addToast(`预设「${name}」已保存`, 'success');
+    return newPreset;
+  },
+
+  updatePreset: (id: string, updates: Partial<Pick<AnimationPreset, 'name' | 'description' | 'params'>>) => {
+    const updated = updateCustomPresetUtil(id, updates);
+    if (updated) {
+      set({
+        customPresets: get().customPresets.map((p) => (p.id === id ? updated : p)),
+      });
+      get().addToast('预设已更新', 'success');
+    } else {
+      get().addToast('预设不存在', 'error');
+    }
+  },
+
+  deletePreset: (id: string) => {
+    const deleted = deleteCustomPresetUtil(id);
+    if (deleted) {
+      set({
+        customPresets: get().customPresets.filter((p) => p.id !== id),
+        selectedPresetId: get().selectedPresetId === id ? null : get().selectedPresetId,
+      });
+      get().addToast('预设已删除', 'info');
+    } else {
+      get().addToast('预设不存在', 'error');
+    }
+  },
+
+  saveCurrentParamsAsPreset: (name: string, description: string): AnimationPreset => {
+    const presetParams = extractPresetParams(get().currentParams);
+    const newPreset = addCustomPresetUtil(name, description, presetParams);
+    set({
+      customPresets: [...get().customPresets, newPreset],
+      selectedPresetId: newPreset.id,
+    });
+    get().addToast(`当前参数已保存为预设「${name}」`, 'success');
+    return newPreset;
   },
 }));
 

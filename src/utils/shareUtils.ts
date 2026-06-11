@@ -1,4 +1,5 @@
-import { CustomTemplate, AnimationParams } from '@/types';
+import { CustomTemplate, AnimationParams, AnimationPreset } from '@/types';
+import { applyPresetToParams, getPresetById } from './presets';
 
 export function encodeTemplateToShareURL(template: CustomTemplate): string {
   try {
@@ -106,4 +107,109 @@ export function importTemplateFromFile(file: File): Promise<CustomTemplate> {
     reader.onerror = () => reject(new Error('文件读取失败'));
     reader.readAsText(file);
   });
+}
+
+export function encodeTemplateWithPresetToShareURL(
+  template: CustomTemplate,
+  presetId: string
+): string {
+  try {
+    const shareData = {
+      id: template.id,
+      name: template.name,
+      category: template.category,
+      description: template.description,
+      svgCode: template.svgCode,
+      elements: template.elements,
+      defaultParams: template.defaultParams,
+      presetId,
+    };
+    const jsonStr = JSON.stringify(shareData);
+    const base64 = btoa(unescape(encodeURIComponent(jsonStr)));
+    const baseUrl = window.location.origin + window.location.pathname;
+    return `${baseUrl}?template=${base64}&preset=${presetId}`;
+  } catch {
+    return '';
+  }
+}
+
+export interface DecodedTemplateWithPreset {
+  template: CustomTemplate;
+  presetId?: string;
+  appliedParams?: AnimationParams;
+}
+
+export function decodeTemplateWithPresetFromURL(
+  url: string
+): DecodedTemplateWithPreset | null {
+  try {
+    const urlObj = new URL(url);
+    const templateParam = urlObj.searchParams.get('template');
+    const presetParam = urlObj.searchParams.get('preset');
+    if (!templateParam) return null;
+
+    const jsonStr = decodeURIComponent(escape(atob(templateParam)));
+    const data = JSON.parse(jsonStr);
+
+    const template: CustomTemplate = {
+      id: data.id || `shared-${Date.now()}`,
+      name: data.name || '导入的模板',
+      category: data.category || 'custom',
+      description: data.description || '',
+      thumbnail: data.thumbnail || '',
+      svgCode: data.svgCode || '',
+      elements: data.elements || [],
+      defaultParams: data.defaultParams || {
+        size: 100,
+        duration: 1,
+        strokeWidth: 2,
+        color: '#0ea5e9',
+        colorSecondary: '#8b5cf6',
+        loopCount: 0,
+        easing: 'ease-in-out',
+      },
+      createdAt: data.createdAt || Date.now(),
+      updatedAt: Date.now(),
+    };
+
+    const presetId = presetParam || data.presetId;
+    let appliedParams: AnimationParams | undefined;
+
+    if (presetId) {
+      const preset = getPresetById(presetId);
+      if (preset) {
+        appliedParams = applyPresetToParams(preset, template.defaultParams);
+      }
+    }
+
+    return {
+      template,
+      presetId: presetId || undefined,
+      appliedParams,
+    };
+  } catch {
+    return null;
+  }
+}
+
+export function getTemplateWithPresetFromCurrentURL(): DecodedTemplateWithPreset | null {
+  const currentURL = window.location.href;
+  return decodeTemplateWithPresetFromURL(currentURL);
+}
+
+export function applyPresetToTemplateParams(
+  template: CustomTemplate,
+  preset: AnimationPreset
+): AnimationParams {
+  return applyPresetToParams(preset, template.defaultParams);
+}
+
+export function getMergedTemplateWithPreset(
+  template: CustomTemplate,
+  preset: AnimationPreset
+): CustomTemplate {
+  return {
+    ...template,
+    defaultParams: applyPresetToParams(preset, template.defaultParams),
+  };
 }

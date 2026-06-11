@@ -149,3 +149,23 @@ export interface CustomTemplate {
   createdAt: number;
   updatedAt: number;
 }
+
+export interface PresetParams {
+  duration: number;
+  easing: string;
+  strokeWidth: number;
+  loopCount: number;
+}
+
+export type PresetCategory = 'bounce' | 'smooth' | 'pulse' | 'rotate' | 'nature' | 'mechanical' | 'custom';
+
+export interface AnimationPreset {
+  id: string;
+  name: string;
+  category: PresetCategory;
+  description: string;
+  params: PresetParams;
+  isCustom: boolean;
+  createdAt?: number;
+  thumbnail?: string;
+}
